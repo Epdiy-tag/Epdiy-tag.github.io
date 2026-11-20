@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>电子纸控制器</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    .section { margin-bottom: 30px; }
+    textarea { width: 180px; font-size: 14px; margin-bottom: 5px; }
+    button { font-size: 16px; padding: 6px 12px; margin-right: 8px; cursor: pointer; }
+    canvas { display: block; border: 1px solid #ccc; }
+    #log { 
+      background: #eee;
+      padding: 10px;
+      height: 160px;
+      overflow-y: auto;
+      font-family: monospace;
+      border: 1px solid #aaa;
+      font-size: 14px;
+    }
+    .status-bar { font-size: 14px; color: #444; margin-top: 10px; }
+    label { margin-right: 5px; }
+    .flex-row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+    .flex-grow { flex: 1; min-width: 250px; }
+    .style-controls { margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+  <h2>2.13寸电子墨水屏蓝牙控制器</h2>
+
+  <div class="section flex-row">
+      <fieldset>
+      <legend>蓝牙连接</legend>
+      <button id="connectbutton" onclick="preConnect()">连接</button>
+      <button id="reconnectbutton" onclick="reConnect()">重连</button>
+      <button onclick="clearLog()">清空日志</button><br/>
+      <button onclick="syncTime(1)">日历模式</button>
+      <button onclick="syncTime(2)">时钟模式</button>
+      <button onclick="clearScreen()">清除屏幕</button>
+      <div id="log"></div>
+    </fieldset>
+    <fieldset>
+      <legend>📋 输入待修改项</legend>
+		<label>品名 <input type="text" id="todoInput_name" value="" /></label><br/>
+		<label>价格 <input type="text" id="todoInput_money" value="" /></label><br/>
+		<label>单位 <input type="text" id="todoInput_unit" value="" /></label><br/>
+		<label>产地 <input type="text" id="todoInput_place" value="" /></label><br/>
+		<label>有效 <input type="text" id="todoInput_date" value="" /></label><br/>
+		<label>重量 <input type="text" id="todoInput_level" value="" /></label><br/>
+		<label>其他 <input type="text" id="todoInput_other" value="" /></label><br/>
+		<label>编号 <input type="text" id="deviceId" value="" /></label>
+      <div class="style-controls">
+        <label>字体大小 <input type="number" id="fontSize" value="20" /></label>
+      </div>
+
+      <button onclick="generateAndSend()">🖼 预览</button>
+	  <button onclick="generateAndSend1()">🖼 发送</button>
+    </fieldset>
+			<canvas id="canvas" width="250" height="122"></canvas>
+	 <fieldset>
+      <legend>蓝牙传图</legend>
+	 <legend>蓝牙传图</legend>
+      <label for="image_file">选择文件</label>
+      <input type="file" id="image_file" onchange="update_image()" accept=".png,.jpg,.bmp,.webp,.jpeg" />
+<br/>
+      <label for="dithering">取模算法</label>
+      <select id="dithering" onchange="update_image()">
+        <option value="bwr_floydsteinberg">三色 Floyd</option>
+        <option value="bwr_Atkinson" selected>三色 Atkinson</option>
+        <option value="floydsteinberg">黑白 Floyd</option>
+        <option value="none">黑白 二值化</option>
+      </select>
+
+      <label for="threshold">阈值</label>
+      <input type="number" id="threshold" value="125" />
+
+      <label for="mtusize">MTU</label>
+      <input type="number" id="mtusize" value="244" />
+
+      <label for="interleavedcount">确认间隔</label>
+      <input type="number" id="interleavedcount" value="50" />
+
+      <br /><br />
+      <button onclick="clear_canvas()">清除画布</button>
+      <button id="sendimgbutton" onclick="sendimg()">发送图片</button>
+      <div class="status-bar">状态：<span id="status"></span></div>
+     </fieldset>
+  </div>
+  <div style="display: none;">
+    <input type="text" id="epdpins" value="" />
+    <select id="epddriver"><option value="01" selected></option></select>
+    <button id="sendcmdbutton"></button>
+    <button id="calendarmodebutton"></button>
+    <button id="clockmodebutton"></button>
+    <button id="clearscreenbutton"></button>
+    <button id="setDriverbutton"></button>
+  </div>
+
+  <script src="js/dithering.js?v=20250512"></script>
+  <script src="js/main.js?v=20250512"></script>
+
+  <script>
+    async function generateAndSend() {
+      document.getElementById("dithering").value = "bwr_Atkinson";
+      generateTodoImage();
+      //setTimeout(() => sendimg(), 100);
+    }
+	
+	async function generateAndSend1() {
+		setTimeout(() => sendimg(), 100);
+    }
+
+    function generateTodoImage() {
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      
+      // 启用图像平滑功能，减少文字锯齿
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      
+      const input_name = document.getElementById("todoInput_name").value;
+	  const input_money = document.getElementById("todoInput_money").value;
+	  const input_unit = document.getElementById("todoInput_unit").value;
+	  const input_place = document.getElementById("todoInput_place").value;
+	  const input_date = document.getElementById("todoInput_date").value;
+	  const input_level = document.getElementById("todoInput_level").value;
+	  const input_other = document.getElementById("todoInput_other").value;
+		
+      const fontSize = parseInt(document.getElementById("fontSize").value) || 20;
+      const W = canvas.width, H = canvas.height;
+      const smallSize = Math.round(fontSize * 0.8);
+
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, W, H);
+
+      // 品名：左上
+      if (input_name) {
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#000000";
+        ctx.fillText(input_name, 5, 24);
+      }
+
+      // 重量/规格：右上，括号包围
+      if (input_level) {
+        ctx.font = `bold ${Math.round(fontSize * 0.7)}px sans-serif`;
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#000000";
+        ctx.fillText(`(${input_level})`, W - 5, 22);
+      }
+
+      // 价格：中间红色大字，¥ 小字在前，单位在右
+      if (input_money) {
+        const priceSize = Math.round(fontSize * 1.2);
+        const curSize = Math.round(fontSize * 0.9);
+        const unitText = input_unit ? `/${input_unit}` : "";
+        const baseY = 70;
+
+        ctx.font = `bold ${priceSize}px sans-serif`;
+        const priceW = ctx.measureText(input_money).width;
+        ctx.font = `bold ${curSize}px sans-serif`;
+        const curW = ctx.measureText("¥").width;
+        ctx.font = `bold ${smallSize}px sans-serif`;
+        const unitW = unitText ? ctx.measureText(unitText).width : 0;
+
+        // 居中后右移两个字符宽度
+        ctx.font = `bold ${priceSize}px sans-serif`;
+        const shiftX = ctx.measureText("00").width;
+        let x = (W - curW + 12 - priceW - 4 - unitW) / 2 + shiftX;
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ff0000";
+        ctx.font = `bold ${curSize}px sans-serif`;
+        ctx.fillText("¥", x, baseY);
+        x += curW + 2;
+
+        ctx.font = `bold ${priceSize}px sans-serif`;
+        ctx.fillText(input_money, x, baseY);
+        x += priceW + 4;
+
+        if (unitText) {
+          ctx.font = `bold ${smallSize}px sans-serif`;
+          ctx.fillStyle = "#000000";
+          ctx.fillText(unitText, x, baseY);
+        }
+      }
+
+      // 产地：左下第一行
+      if (input_place) {
+        ctx.font = `bold ${smallSize}px sans-serif`;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#000000";
+        ctx.fillText(input_place, 5, 96);
+      }
+
+      // 其他：左下第二行
+      if (input_other) {
+        ctx.font = `bold ${smallSize}px sans-serif`;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#000000";
+        ctx.fillText(input_other, 5, H - 10);
+      }
+
+      // 有效期：右下
+      if (input_date) {
+        ctx.font = `bold ${smallSize}px sans-serif`;
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#000000";
+        ctx.fillText(input_date, W - 5, H - 10);
+      }
+
+      // 设备编号
+      const deviceId = document.getElementById("deviceId").value;
+      if (deviceId) {
+         ctx.font = `bold 10px sans-serif`;
+         ctx.textAlign = "right";
+         ctx.fillStyle = "#ff0000";
+         ctx.fillText(deviceId, W - 2, H - 1);
+       }
+
+      convert_dithering();
+    }
+  </script>
+</body>
+</html>
